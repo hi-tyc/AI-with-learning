@@ -1,260 +1,73 @@
-# StudyBuddy AI 伴学系统
+# StudyBuddy AI伴学
 
-> **智能解题 · 知识管理 · 多模态学习** — 面向初中生的私有化 AI 学习辅助平台
+面向英语课外班的本地化教师工作台。系统聚焦班型、班级、资料、作业分发、错题统计与 Kimi Code AI 批改，不包含数学、通用对话或学生解题入口。
 
----
+## 功能
 
-## 简介
-
-StudyBuddy 是一款面向初中学生的智能学习辅助系统，支持 **数学**、**英语**、**对话** 三种学习模式。深度融合 DeepSeek 和 Kimi 双 AI 模型，提供拍照/PDF 上传识别、智能分步解题、资料自动分类归档、错题管理等完整学习闭环。所有数据以 JSON 文件本地存储，**完全私有化部署**，无需联网依赖外部服务。
-
-开发者：**朵朵**（南京外国语学校 2025 级 2 班）
-
----
-
-## 三种学习模式
-
-| 模式 | AI 引擎 | 核心能力 |
-|------|---------|---------|
-| **数学** | DeepSeek + Kimi 自动分流 | 试卷拍照/PDF 上传识别，代数/几何分类，智能解题，树形题库管理 |
-| **英语** | 强制 DeepSeek | 统一上传入口，AI 自动分类（题目/答案/资料），标签归档，答案匹配 |
-| **对话** | DeepSeek + Kimi 可切换 | 通用 AI 对话，支持图片/PDF/Word 上传，多轮会话管理 |
-
----
-
-## 核心功能
-
-### 数学模式
-
-- **题目录入** — 上传 JPG/PNG/PDF 试卷，AI 识别文字并结构化入库。支持代数（文字识别）与几何（原图保存）两种模式
-- **PDF 智能分流** — 文本页直接提取文字（零 token 消耗），扫描页自动转截图；几何模式 PDF 由 Kimi 分析分类
-- **智能解题** — 支持「解大题」「解小题」「自由输入」三种方式，流式 SSE 实时输出解题过程
-- **模型自动选择** — 含图/PDF → Kimi，纯文字 → DeepSeek（flash/pro）
-- **题库管理** — 树形目录，支持新建/重命名/移动/删除，大题-子题层级
-- **错题本** — 自动收录错题，支持查看与管理
-
-### 英语模式
-
-- **统一上传入口** — 一个「上传资料」按钮，支持 PDF / Word（docx）/ 图片，可多选
-- **AI 自动分类** — DeepSeek 自动分析文档内容，判断为 **题目** / **答案** / **资料**，分别存入独立库
-- **答案匹配** — AI 自动将题目文件与答案文件配对，建立映射关系
-- **标签归档** — 按 `月考1 / 期中 / 月考2 / 期末 / 其他` 标签分类，解题时一键调用
-- **复习资料调用** — 解题时选择资料标签，AI 自动将资料内容注入 prompt
-- **错题管理** — 英语专属错题本，针对性巩固
-
-### 对话模式
-
-- 通用 AI 对话，支持上传图片/PDF/Word 文档
-- 多轮会话管理（创建、重命名、删除）
-- 支持 DeepSeek 和 Kimi 双模型切换
-
-### 通用功能
-
-| 功能 | 说明 |
-|------|------|
-| **流式输出** | 上传识别、解题过程均通过 SSE 实时推送，前端深色终端面板滚动展示 |
-| **用量统计** | 每次会话精确记录缓内/缓外 input/output tokens 与花费，历史可查 |
-| **费用管控** | 基于 API 官方定价实时计算，支持设置每日花费上限，超限自动熔断 |
-| **图片压缩** | 可配置压缩质量与长边上限，显著降低 token 消耗 |
-| **系统设置** | 前端配置 API Key、模型版本、压缩参数、超时、重试、每日上限，实时测试连接 |
-| **个人资料** | 设置年级、学校，AI 据此调整讲解深度 |
-| **数据隔离** | 不同学科数据完全分离（`用户_学科_*.json`），互不干扰 |
-| **管理员面板** | 系统监控、用户管理、运行诊断 |
-
----
-
-## 快速开始
-
-### 首次部署（新电脑）
-
-1. 确保已安装 **Python 3.11+**
-2. 双击项目根目录的 **`首次部署.py`**
-3. 脚本会自动创建虚拟环境、安装依赖、准备前端文件并启动服务
-4. 浏览器自动打开后，进入「系统设置」配置 API Key
-
-> 整个过程约 3~5 分钟，无需手动安装 Node.js（生产模式使用预构建的前端文件）
-
-### 日常启动
-
-| 操作 | 脚本 | 说明 |
-|------|------|------|
-| **启动服务** | `开启服务.py` (双击) | 生产模式启动，浏览器自动打开 |
-| **停止服务** | `关闭服务.py` (双击) | 安全停止所有服务 |
-| **开发者启动** | `python start.py` | 支持 `--prod` / `--build` / `--port` 参数 |
-| **停止开发服务** | `python stop.py` | 停止开发模式下的前后端进程 |
-
-### 开发者模式
-
-```bash
-# 终端 1：后端（热重载）
-cd backend
-venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 6003 --reload
-
-# 终端 2：前端（Vite 开发服务器）
-cd frontend
-npm run dev
-```
-
-访问 `http://localhost:5173`
-
-### 前置配置
-
-1. 登录时选择 **数学** / **英语** / **对话** 模式
-2. 进入「设置 → 系统设置」配置 API Key：
-   - **DeepSeek API Key** — 从 [platform.deepseek.com](https://platform.deepseek.com) 获取
-   - **Kimi API Key** — 从 [platform.moonshot.cn](https://platform.moonshot.cn) 获取
-3. 点击「测试连接」确认配置无误
-
----
+- 管理员创建班型、班级、教师账号，并审核学生注册申请。
+- 教师进入自己所属班级，直接拍照上传 PDF、Word、JPG 或 PNG 资料。
+- 资料支持教师自定义的多层标签、资料类型、原文件查看、单份打印和批量打印。
+- 可按班级或班型批量分发资料，自动带入对应学生名单。
+- 记录学生已完成部分和错题，展示题目正确率与错误学生，并导出个人或整合错题本、Word 包和正确率总表。
+- AI 自动批改支持分别上传或选择标准答案与学生作答；Kimi Code 只将高置信度错误写入错题本，低置信度结果保留为待人工确认。
+- 学生可提交注册申请和现场人脸审核视频；通过后由管理员安排班级。学生学习端当前不开放。
 
 ## 技术栈
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| **后端框架** | FastAPI + Uvicorn | Python 3.13，全异步 |
-| **AI 集成** | openai (AsyncOpenAI) | 统一封装 DeepSeek / Kimi API |
-| **图片/PDF 处理** | Pillow / PyMuPDF | 压缩、格式转换、PDF 文本提取 |
-| **Word 解析** | zipfile + xml.etree.ElementTree | 内置解析 docx，零额外依赖 |
-| **数据存储** | JSON 文件 | 按用户+学科隔离，`asyncio.Lock` 并发安全 |
-| **OCR** | pytesseract（可选） | 本地 OCR 回退方案 |
-| **前端框架** | Vue 3 (Composition API) | `<script setup>` 风格 |
-| **构建工具** | Vite 5 | 开发服务器 + 生产构建 |
-| **UI 库** | Element Plus | 中文友好组件库 |
-| **状态管理** | Pinia | Vue 3 官方状态管理 |
-| **路由** | Vue Router（Hash History） | 含学科守卫、登录守卫 |
-| **数学渲染** | KaTeX + markdown-it | LaTeX + Markdown 混排渲染 |
-| **流式传输** | Server-Sent Events (SSE) | 上传进度 + 解题过程实时推送 |
+- 前端：Vue 3、Vite、Element Plus、Pinia、Vue Router
+- 后端：FastAPI、Uvicorn、Pydantic、PyMuPDF、python-docx
+- AI：Kimi Code API（OpenAI 兼容接口）
+- 数据：本地 JSON 与文件目录，API Key 不进入代码仓库
 
----
+## 本地开发
 
-## 项目结构
+前置条件：Python 3.11+、Node.js 22+。
 
-```
-AI伴学/
-│
-├── 首次部署.py           # [双击] 新电脑首次部署（自动安装依赖+启动）
-├── 开启服务.py            # [双击] 日常启动（生产模式）
-├── 关闭服务.py            # [双击] 停止服务
-├── 部署教程.txt           # 面向普通用户的部署说明
-├── start.py               # 开发启动脚本（--prod / --build 参数）
-├── stop.py                # 开发停止脚本
-├── opencode.json          # OpenCode AI 辅助配置
-│
-├── backend/               # Python FastAPI 后端
-│   ├── main.py            # 应用入口（CORS、静态挂载、生命周期）
-│   ├── requirements.txt   # Python 依赖（13 个包）
-│   ├── .env               # 环境变量配置文件
-│   ├── .env.example       # 环境变量模板
-│   ├── app/
-│   │   ├── api/           # 路由注册 + 17 个端点模块
-│   │   ├── core/          # 配置、路径管理、定价引擎、用户数据
-│   │   └── utils/         # AI 客户端、文件锁、文档转换
-│   ├── data/              # 运行时数据（用户/题库/用量/上传）
-│   └── venv/              # Python 虚拟环境
-│
-├── frontend/              # Vue 3 前端
-│   ├── package.json       # 前端依赖（13 个包）
-│   ├── vite.config.js     # Vite 配置（API 代理）
-│   ├── index.html
-│   ├── dist/              # 生产构建输出
-│   └── src/
-│       ├── views/         # 15 个页面 + 4 个英语子页面
-│       ├── components/    # AppLayout, SidebarLeft, SidebarRight, NavBar
-│       ├── stores/        # auth.js, app.js（Pinia）
-│       ├── router/        # 22 条路由 + 路由守卫
-│       └── api/           # API 适配层
-│
-├── docs/                  # 文档
-│   ├── CODE_WIKI.md       # 完整代码知识库
-│   ├── 开发指南.md         # 原始需求/开发任务书
-│   └── 使用指南.md         # 用户操作手册
-│
-├── tests/                 # 测试文件
-├── temp/                  # 临时文件
-└── tools/                 # 工具脚本
+```bash
+cd frontend
+npm ci
+npm run dev
 ```
 
----
+另开一个终端：
 
-## 数据存储
-
-所有数据以 JSON 文件存储在 `backend/data/`（可通过 `.env` 的 `DATA_DIR` 配置自定义路径）。核心数据文件：
-
-| 文件模式 | 内容 |
-|---------|------|
-| `{用户名}.json` | 用户资料（年级、学校） |
-| `{用户名}_config.json` | 系统配置（API Key、模型、压缩参数） |
-| `{用户名}_{学科}_problems.json` | 题库 |
-| `{用户名}_{学科}_wrong.json` | 错题列表 |
-| `{用户名}_{学科}_sessions.json` | 上传会话记录 |
-| `{用户名}_{学科}_usage.json` | API 用量与花费 |
-| `{用户名}_{学科}_solve_sessions.json` | 解题记录 |
-| `{用户名}_{学科}_materials.json` | 复习资料（英语） |
-| `{用户名}_{学科}_answers.json` | 答案库（英语） |
-| `{用户名}_{学科}_problem_answer_map.json` | 题目-答案映射 |
-| `{用户名}_对话_chat_sessions.json` | 对话会话列表 |
-| `{用户名}_对话_chat_{id}.json` | 对话消息 |
-
-> 默认 `DATA_DIR=../AI伴学数据`（项目外），防止代码更新导致数据丢失。
-
----
-
-## 环境配置
-
-创建或编辑 `backend/.env`：
-
-```ini
-SECRET_KEY=study-buddy-secret-key-2024
-BACKEND_PORT=6000
-UPLOAD_DIR=uploads
-DATA_DIR=../AI伴学数据
+```bash
+cd backend
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 6003
 ```
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `SECRET_KEY` | Session 加密密钥 | `study-buddy-secret-key-2024` |
-| `BACKEND_PORT` | 后端端口 | `6000` |
-| `UPLOAD_DIR` | 上传文件存储目录 | `uploads` |
-| `DATA_DIR` | 数据持久化目录 | `../AI伴学数据` |
-| `STUDYBUDDY_DATA_DIR` | 环境变量覆盖 DATA_DIR（优先级最高） | — |
+访问 `http://127.0.0.1:5173`。Windows 下将 `.venv/bin/python` 替换为 `.venv\Scripts\python.exe`。
 
-### 管理员账户
+管理员默认账户为 `root`，默认密码为 `admin123`。首次登录后应立即修改管理员密码，并在“系统设置”中配置 Kimi API Key。
 
-- 用户名：`root`（保留管理员）
-- 默认密码：`admin123`（可在管理面板修改）
-- 密码以 SHA-256 哈希存储在 `data/admin.json`
+## 验证
 
----
+```bash
+python -m pip install -r backend/requirements.txt pytest
+python -m pytest -q
+npm ci --prefix frontend
+npm run build --prefix frontend
+```
 
-## 端口分配
+`tests/test_upload.py` 与 `tests/test_upload2.py` 是历史人工联调脚本，依赖一台旧 Windows 电脑上的文件路径，已从自动 pytest 收集中排除。
 
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| 后端 (Uvicorn) | 6003–6010 | 自动探测空闲端口 |
-| 前端 (Vite 开发) | 5173–5174 | 仅开发模式 |
-| 生产模式 | 6003–6010 | 后端直接提供前端静态文件 |
+## GitHub Actions
 
----
+- `.github/workflows/ci.yml`：每次推送到 `main`、Pull Request 或手动触发时，构建前端、编译并测试后端，并上传源码 ZIP Artifact。
+- `.github/workflows/build-macos.yml`：手动触发或推送 `v*` 标签时构建 macOS Intel/Apple Silicon 分发包；标签构建会将 ZIP 附加到 GitHub Release。
 
-## 开发亮点
+## 源码分发包
 
-- **端口自适应** — 自动探测空闲端口，避免冲突
-- **学科完全隔离** — 登录时选择的学科决定数据存储前缀
-- **英语 AI 三库分类** — 上传时 DeepSeek 自动判断文档类型
-- **PDF 智能分流** — 文本页直接提取文字，扫描页自动转截图
-- **Word 零依赖解析** — zipfile + ElementTree 解析 docx
-- **模型自动分流** — 含图/PDF → Kimi，纯文字 → DeepSeek
-- **实时定价** — 基于官方定价精确计算花费
-- **原子写入** — JSON 文件先写 `.tmp` 再 `os.replace`，崩溃保留 `.bak`
-- **文件锁** — `asyncio.Lock` 防并发覆盖
-- **费用熔断** — 每日花费超限自动切断 AI 调用
-- **液态玻璃 UI** — 动态粒子效果，深色/浅色自适应
+提交完成后，在项目根目录执行：
 
----
+```bash
+python tools/package_source.py
+```
 
-## 适用场景
+压缩包会生成在 `build/source/`，只包含当前提交中的源代码，不包含本地用户数据、上传文件、虚拟环境或 API Key。需要在未提交状态下临时打包时可使用 `--allow-dirty`，但该包仍以当前 `HEAD` 为准。
 
-- **初中生日常学习** — 数学错题整理、英语试卷归档、AI 辅助解题与知识梳理
-- **期中/期末备考** — 系统性上传试卷，AI 智能分类归档，高效复习
-- **英语专项训练** — 按标签管理资料，解题时一键调用
-- **个人知识库** — 长期积累跨学科学习材料，形成可检索、可调用的智能学习档案
+## 数据与隐私
+
+运行数据默认保存在代码仓库外或被 `.gitignore` 排除的本地目录中。不要将 `users/`、`uploads/`、`backend/.env`、`backend/data/`、人脸审核视频或 API Key 提交到 GitHub。

@@ -1,7 +1,7 @@
 <template>
   <div class="app-layout">
     <!-- 移动端顶部导航栏 -->
-    <div class="mobile-header" v-if="!isLoginPage">
+    <div class="mobile-header" v-if="!isLoginPage && !isTeacherWorkspace">
       <div class="mobile-header-left">
         <el-button text circle size="small" @click="toggleSidebar" class="hamburger-btn">
           <el-icon size="20"><Fold v-if="sidebarOpen" /><Expand v-else /></el-icon>
@@ -22,8 +22,8 @@
       @click="sidebarOpen = false"
     ></div>
 
-    <SidebarLeft :class="{ 'mobile-open': sidebarOpen && isMobile }" />
-    <main class="main-content" :class="{ 'mobile-login': isLoginPage }">
+    <SidebarLeft v-if="!isTeacherWorkspace" :class="{ 'mobile-open': sidebarOpen && isMobile }" />
+    <main class="main-content" :class="{ 'mobile-login': isLoginPage, 'teacher-shell': isTeacherWorkspace }">
       <slot />
     </main>
     <SidebarRight />
@@ -40,6 +40,7 @@ import SidebarRight from './SidebarRight.vue'
 const route = useRoute()
 const auth = useAuthStore()
 const isLoginPage = computed(() => ['/login', '/register'].includes(route.path))
+const isTeacherWorkspace = computed(() => route.path === '/teacher' || route.path.startsWith('/teacher/'))
 
 // 移动端检测
 const isMobile = ref(false)
@@ -80,6 +81,9 @@ provide('isMobile', isMobile)
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
+}
+.main-content.teacher-shell {
+  height: 100vh;
 }
 
 /* ========== 移动端响应式 ========== */

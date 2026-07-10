@@ -36,10 +36,34 @@
             <el-input v-model="form.confirmPassword" type="password" show-password />
           </el-form-item>
           <el-form-item label="人机验证">
-            <div class="captcha-row">
-              <span>{{ challenge.left }} + {{ challenge.right }} =</span>
-              <el-input v-model="form.humanCheckValue" style="width:120px" />
-              <el-button @click="refreshChallenge">换一题</el-button>
+            <div class="modern-captcha" :class="{ verified: captchaVerified }">
+              <div class="captcha-title">
+                <span>{{ captchaVerified ? '验证通过' : '拖动滑块完成验证' }}</span>
+                <el-button text size="small" @click="resetCaptcha">重置</el-button>
+              </div>
+              <div
+                ref="captchaTrackRef"
+                class="captcha-track"
+                @pointermove="onCaptchaMove"
+                @pointerup="finishCaptchaDrag"
+                @pointerleave="finishCaptchaDrag"
+              >
+                <div class="captcha-fill" :style="{ width: `${captchaProgress}%` }"></div>
+                <div class="captcha-target">
+                  <span>目标区</span>
+                </div>
+                <button
+                  class="captcha-thumb"
+                  type="button"
+                  :style="{ left: `${captchaProgress}%`, transform: `translateX(-${captchaProgress}%)` }"
+                  @pointerdown="startCaptchaDrag"
+                >
+                  <span>{{ captchaVerified ? '✓' : '→' }}</span>
+                </button>
+              </div>
+              <div class="hint-line" :class="{ ok: captchaVerified }">
+                {{ captchaVerified ? '已完成交互验证' : '按住滑块，拖到右侧目标区。' }}
+              </div>
             </div>
           </el-form-item>
 
@@ -101,13 +125,13 @@ import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const videoRef = ref(null)
+const captchaTrackRef = ref(null)
 const form = ref({
   username: '',
   realName: '',
   classId: '',
   password: '',
   confirmPassword: '',
-  humanCheckValue: '',
   faceConsentAccepted: false,
 })
 
@@ -127,7 +151,9 @@ const defaultFaceConsent = () => ({
 const faceConsent = ref(defaultFaceConsent())
 const publicClasses = ref([])
 const submitting = ref(false)
-const challenge = ref({ left: 3, right: 5 })
+const captchaProgress = ref(0)
+const captchaVerified = ref(false)
+const draggingCaptcha = ref(false)
 const cameraReady = ref(false)
 const faceAligned = ref(false)
 const faceDetectionSupported = ref(false)
@@ -151,12 +177,42 @@ const passwordStrong = computed(() => {
 
 const detectorLabel = computed(() => faceDetectionSupported.value ? '原生人脸检测已启用' : '浏览器不支持 FaceDetector，使用摄像头可见性兜底')
 
-function refreshChallenge() {
-  challenge.value = {
-    left: Math.floor(Math.random() * 8) + 1,
-    right: Math.floor(Math.random() * 8) + 1,
+function resetCaptcha() {
+  captchaProgress.value = 0
+  captchaVerified.value = false
+  draggingCaptcha.value = false
+}
+
+function startCaptchaDrag(event) {
+  if (captchaVerified.value) return
+  draggingCaptcha.value = true
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+  updateCaptchaProgress(event)
+}
+
+function onCaptchaMove(event) {
+  if (!draggingCaptcha.value || captchaVerified.value) return
+  updateCaptchaProgress(event)
+}
+
+function finishCaptchaDrag() {
+  if (!draggingCaptcha.value || captchaVerified.value) return
+  draggingCaptcha.value = false
+  if (captchaProgress.value >= 92) {
+    captchaProgress.value = 100
+    captchaVerified.value = true
+  } else {
+    captchaProgress.value = 0
   }
-  form.value.humanCheckValue = ''
+}
+
+function updateCaptchaProgress(event) {
+  const rect = captchaTrackRef.value?.getBoundingClientRect()
+  if (!rect) return
+  const thumbWidth = 44
+  const usableWidth = Math.max(1, rect.width - thumbWidth)
+  const raw = ((event.clientX - rect.left - thumbWidth / 2) / usableWidth) * 100
+  captchaProgress.value = Math.max(0, Math.min(100, raw))
 }
 
 async function loadPublicClasses() {
@@ -290,7 +346,6 @@ function startRecording() {
 }
 
 async function submitRegistration() {
-  const expected = challenge.value.left + challenge.value.right
   if (!form.value.username.trim() || !form.value.realName.trim()) {
     ElMessage.warning('请填写用户名和真实姓名')
     return
@@ -303,7 +358,7 @@ async function submitRegistration() {
     ElMessage.warning('两次密码不一致')
     return
   }
-  if (String(expected) !== String(form.value.humanCheckValue).trim()) {
+  if (!captchaVerified.value) {
     ElMessage.warning('人机验证未通过')
     return
   }
@@ -322,8 +377,8 @@ async function submitRegistration() {
     payload.append('real_name', form.value.realName.trim())
     payload.append('password', form.value.password)
     payload.append('confirm_password', form.value.confirmPassword)
-    payload.append('captcha_token', 'verified')
-    payload.append('human_check_value', form.value.humanCheckValue)
+    payload.append('captcha_token', 'slider-verified')
+    payload.append('human_check_value', 'slider-complete')
     payload.append('class_id', form.value.classId || '')
     payload.append('face_detection_supported', String(faceDetectionSupported.value))
     payload.append('face_aligned', String(faceAligned.value))
@@ -342,7 +397,6 @@ async function submitRegistration() {
 }
 
 onMounted(() => {
-  refreshChallenge()
   loadPublicClasses().catch(() => {})
   loadFaceConsent().catch(() => {})
 })
@@ -385,10 +439,76 @@ onUnmounted(() => {
   border-radius: 8px;
   border: none;
 }
-.captcha-row {
+.modern-captcha {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.modern-captcha.verified {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.captcha-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #0f172a;
+  font-weight: 600;
+}
+.captcha-track {
+  position: relative;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  touch-action: none;
+  user-select: none;
+}
+.captcha-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #dbeafe;
+}
+.captcha-target {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  bottom: 6px;
+  width: 96px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed #60a5fa;
+  border-radius: 8px;
+  color: #2563eb;
+  font-size: 13px;
+}
+.captcha-thumb {
+  position: absolute;
+  top: 5px;
+  width: 44px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  cursor: grab;
+  font-size: 18px;
+}
+.captcha-thumb:active {
+  cursor: grabbing;
+}
+.modern-captcha.verified .captcha-fill {
+  background: #bbf7d0;
+}
+.modern-captcha.verified .captcha-thumb {
+  background: #16a34a;
 }
 .hint-line {
   margin-top: 8px;

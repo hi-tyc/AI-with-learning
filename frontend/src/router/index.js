@@ -4,6 +4,10 @@ import { useAuthStore } from '../stores/auth.js'
 const routes = [
   { path: '/login', component: () => import('../views/Login.vue') },
   { path: '/register', component: () => import('../views/Register.vue') },
+  { path: '/teacher/classes/:classId', component: () => import('../views/TeacherWorkspace.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },
+  { path: '/teacher/classes', component: () => import('../views/TeacherWorkspace.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },
+  { path: '/teacher/library', component: () => import('../views/TeacherWorkspace.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },
+  { path: '/teacher/stats', component: () => import('../views/TeacherWorkspace.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },
   { path: '/teacher', component: () => import('../views/TeacherWorkspace.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },
   { path: '/admin', component: () => import('../views/AdminWorkspace.vue'), meta: { auth: true, roles: ['admin'] } },
   { path: '/document-viewer', component: () => import('../views/DocumentViewer.vue'), meta: { auth: true, roles: ['teacher', 'admin'] } },

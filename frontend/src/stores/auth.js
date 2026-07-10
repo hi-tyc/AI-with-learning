@@ -10,6 +10,7 @@ axios.defaults.baseURL = '/api'
 let loadingInstance = null
 let requestCount = 0
 let loadingTimer = null
+let sessionExpiryRedirecting = false
 
 const SKIP_LOADING_PATHS = ['/materials/tree', '/materials/tags', '/school/summary']
 
@@ -64,9 +65,16 @@ axios.interceptors.response.use(
     }
     if (error.response?.status === 401) {
       const currentPath = window.location.hash.replace(/^#/, '') || '/'
-      if (!currentPath.includes('/login')) {
+      if (!sessionExpiryRedirecting && !currentPath.includes('/login') && !currentPath.includes('/register')) {
+        sessionExpiryRedirecting = true
         ElMessage.error('登录已过期，请重新登录')
-        window.location.href = '/#/login'
+        // A hash-only redirect preserves Pinia's in-memory login state. Changing the
+        // query string forces a full navigation, so the route guard starts on login
+        // with a clean auth store instead of reloading the protected current route.
+        const loginUrl = new URL(window.location.href)
+        loginUrl.searchParams.set('session_expired', String(Date.now()))
+        loginUrl.hash = '#/login'
+        window.location.replace(loginUrl.toString())
       }
     } else if (error.response?.status === 429) {
       ElMessage.warning(error.response?.data?.detail || '请求过于频繁，请稍后重试')

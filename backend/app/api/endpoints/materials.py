@@ -6,18 +6,22 @@ import uuid
 import os
 import io
 import re
+import json
 from datetime import datetime
 from urllib.parse import quote
+from openai import APITimeoutError, APIConnectionError, APIStatusError, RateLimitError, AuthenticationError
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
-from app.api.endpoints.auth import get_current_user
-from app.core.user_data import get_user_subject, get_materials_path, get_library_trash_path
+from app.api.endpoints.auth import get_current_user, get_current_user_profile
+from app.core.school_data import load_classes, load_class_types
+from app.core.user_data import get_user_subject, get_materials_path, get_library_trash_path, get_user_config_path
 from app.core.paths import UPLOAD_DIR
 from app.utils.file_lock import read_json, write_json
 from app.utils.doc_converter import convert_docx_to_pdf, _convert_sync
+from app.utils.ai_client import create_client, KIMI_BASE_URL
 import logging
 
 router = APIRouter()
@@ -27,6 +31,12 @@ MAGIC_JPEG = b"\xff\xd8\xff"
 MAGIC_PNG = b"\x89\x50\x4e\x47"
 MAGIC_PDF = b"%PDF"
 MAGIC_ZIP = b"PK\x03\x04"
+DOC_TYPES = {"题目", "答案", "词单", "资料"}
+
+
+class MaterialTypeUpdateRequest(BaseModel):
+    doc_type: str
+    reason: str = ""
 
 
 def _material_tree_node(name: str = "") -> dict:
@@ -76,6 +86,161 @@ def _build_tag_tree(materials: list[dict]) -> list[dict]:
         }
 
     return [serialize(child) for child in sorted(root["children"].values(), key=lambda item: item["name"])]
+
+
+def _safe_extract_json(text: str) -> dict | None:
+    if not text:
+        return None
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        data = json.loads(cleaned)
+        return data if isinstance(data, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(cleaned[start:end + 1])
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _normalize_doc_type(value: str) -> str:
+    value = (value or "").strip()
+    if value in DOC_TYPES:
+        return value
+    aliases = {
+        "problem": "题目",
+        "problems": "题目",
+        "question": "题目",
+        "questions": "题目",
+        "answer": "答案",
+        "answers": "答案",
+        "word": "词单",
+        "words": "词单",
+        "vocabulary": "词单",
+        "material": "资料",
+        "materials": "资料",
+        "review": "资料",
+    }
+    return aliases.get(value.lower(), "资料")
+
+
+def classify_material_locally(filename: str, text: str = "") -> dict:
+    name = filename or ""
+    lower = name.lower()
+    sample = (text or "")[:3000]
+    combined = f"{name}\n{sample}"
+
+    doc_type = "资料"
+    confidence = 0.55
+    reason = "根据文件名和文本特征进行本地规则判断"
+
+    word_keywords = ("单词", "词单", "词组", "默写")
+    material_keywords = ("知识梳理", "知识点", "课文考点", "考点清单", "语言点", "讲义", "总结")
+    answer_keywords = ("答案来源版", "答案版", "答案", "教师版", "解析", "批改")
+    problem_keywords = ("学生版", "练习", "试卷", "课前测", "考题", "阅读", "完形", "填空")
+
+    if any(key in name for key in word_keywords):
+        doc_type = "词单"
+        confidence = 0.82
+        reason = "文件名包含单词/词单/默写等词单特征"
+    elif any(key in name for key in material_keywords):
+        doc_type = "资料"
+        confidence = 0.82
+        reason = "文件名包含知识梳理/考点/语言点等资料特征"
+    elif any(key in name for key in answer_keywords):
+        doc_type = "答案"
+        confidence = 0.78
+        reason = "文件名包含答案/教师版/解析等答案特征"
+    elif re.search(r"【答案】|答案[:：]|answer\s*[:：]", combined, flags=re.IGNORECASE):
+        doc_type = "答案"
+        confidence = 0.72
+        reason = "文本中出现答案标注"
+    elif any(key in name for key in problem_keywords):
+        doc_type = "题目"
+        confidence = 0.72
+        reason = "文件名包含学生版/练习/试卷等题目特征"
+    elif re.search(r"\bA[.、)]\s+.+\bB[.、)]|\bC[.、)]|\bD[.、)]|_{3,}|____|c_{4,}", combined, flags=re.IGNORECASE | re.DOTALL):
+        doc_type = "题目"
+        confidence = 0.68
+        reason = "文本中出现选择题选项或填空特征"
+    elif re.search(r"\|.*(中文|英文|词性|pos|english|chinese).*\|", combined, flags=re.IGNORECASE):
+        doc_type = "词单"
+        confidence = 0.68
+        reason = "文本中出现词单表格特征"
+
+    summary = sample.strip().replace("\n", " ")[:120]
+    return {
+        "doc_type": doc_type,
+        "confidence": confidence,
+        "reason": reason,
+        "summary": summary,
+        "source": "local",
+    }
+
+
+def _find_material(materials: list[dict], material_id: str) -> tuple[int, dict] | tuple[None, None]:
+    for idx, item in enumerate(materials):
+        if item.get("id") == material_id:
+            return idx, item
+    return None, None
+
+
+async def _load_current_user_materials(username: str) -> tuple[str, list[dict]]:
+    config_subject = await get_user_subject(username)
+    path = get_materials_path(username, config_subject)
+    materials = await read_json(path) or []
+    return path, materials if isinstance(materials, list) else []
+
+
+def _cached_material_text(material_id: str) -> str:
+    text_path = os.path.join(UPLOAD_DIR, f"{material_id}_text.txt")
+    if os.path.exists(text_path):
+        try:
+            with open(text_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return ""
+    return ""
+
+
+async def _validate_material_scope(user: dict, class_id: str, class_type_id: str) -> tuple[str, str]:
+    class_id = (class_id or "").strip()
+    class_type_id = (class_type_id or "").strip()
+    if not class_id and not class_type_id:
+        return "", ""
+
+    classes = await load_classes()
+    class_types = await load_class_types()
+    if class_type_id and not any(item.get("id") == class_type_id for item in class_types):
+        raise HTTPException(status_code=404, detail="班型不存在")
+
+    username = user.get("username")
+    role = user.get("role")
+    if class_id:
+        target_class = next((item for item in classes if item.get("id") == class_id), None)
+        if target_class is None:
+            raise HTTPException(status_code=404, detail="班级不存在")
+        if role != "admin" and username not in (target_class.get("teacher_usernames") or []):
+            raise HTTPException(status_code=403, detail="无权上传到该班级")
+        if not class_type_id:
+            class_type_id = target_class.get("class_type_id", "")
+
+    if class_type_id and role != "admin":
+        visible_type = any(
+            item.get("class_type_id") == class_type_id and username in (item.get("teacher_usernames") or [])
+            for item in classes
+        )
+        if not visible_type:
+            raise HTTPException(status_code=403, detail="无权上传到该班型")
+
+    return class_id, class_type_id
 
 
 def _is_image(data: bytes) -> bool:
@@ -313,8 +478,17 @@ async def upload_material(
     subject: str = Form(...),
     time: str = Form(...),
     tag: str = Form(""),
-    username: str = Depends(get_current_user),
+    doc_type: str = Form("资料"),
+    class_id: str = Form(""),
+    class_type_id: str = Form(""),
+    user: dict = Depends(get_current_user_profile),
 ):
+    username = user["username"]
+    doc_type = (doc_type or "资料").strip()
+    if doc_type not in DOC_TYPES:
+        raise HTTPException(status_code=400, detail="资料类型无效")
+    class_id, class_type_id = await _validate_material_scope(user, class_id, class_type_id)
+
     data = await file.read()
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="文件内容为空")
@@ -364,6 +538,10 @@ async def upload_material(
         "subject": subject,
         "time": time,
         "tag": tag or time,
+        "doc_type": doc_type,
+        "owner_teacher": username,
+        "class_id": class_id,
+        "class_type_id": class_type_id,
         "file_path": save_path,
         "file_type": file_type,
         "file_size": len(data),
@@ -483,6 +661,112 @@ async def get_material(
     raise HTTPException(status_code=404, detail="资料不存在")
 
 
+@router.post("/{material_id}/classify")
+async def classify_material(
+    material_id: str,
+    user: dict = Depends(get_current_user_profile),
+):
+    username = user["username"]
+    materials_path, materials = await _load_current_user_materials(username)
+    idx, target = _find_material(materials, material_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+
+    text = _cached_material_text(material_id)
+    local_result = classify_material_locally(target.get("filename", ""), text)
+    result = dict(local_result)
+
+    config = await read_json(get_user_config_path(username)) or {}
+    api_key = (config.get("kimi_api_key") or "").strip()
+    if api_key:
+        model = config.get("kimi_model", "kimi-k2.7-code")
+        timeout = int(config.get("kimi_timeout", 120) or 120)
+        prompt = f"""你是英语课外班资料分类助手。请根据文件名和文档内容，将资料分类为四类之一：题目、答案、词单、资料。
+
+分类规则：
+- 题目：学生练习、试卷、阅读/完形/选择/填空，含待作答空位。
+- 答案：答案来源版、教师版答案、解析、批改讲解，含答案或参考解答。
+- 词单：单词/词组/默写表，主要是英文、中文释义、词性对照。
+- 资料：知识梳理、考点、语言点、讲义、语法总结。
+
+只输出 JSON：
+{{"doc_type":"题目|答案|词单|资料","confidence":0.0到1.0,"reason":"一句话理由","summary":"100字内摘要"}}
+
+文件名：{target.get("filename", "")}
+当前标签：{target.get("tag", "")}
+文档内容节选：
+{text[:5000] if text else "未提取到文本，请主要根据文件名判断"}
+"""
+        client = create_client(api_key, KIMI_BASE_URL, timeout)
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "你是严格的英语教学资料分类器，只输出 JSON。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=500,
+                extra_body={"thinking": {"type": "disabled"}},
+            )
+            parsed = _safe_extract_json(response.choices[0].message.content or "")
+            if parsed:
+                result = {
+                    "doc_type": _normalize_doc_type(parsed.get("doc_type") or parsed.get("type")),
+                    "confidence": float(parsed.get("confidence", local_result["confidence"]) or local_result["confidence"]),
+                    "reason": (parsed.get("reason") or local_result["reason"]).strip(),
+                    "summary": (parsed.get("summary") or local_result["summary"]).strip(),
+                    "source": "kimi",
+                    "model": model,
+                }
+        except AuthenticationError:
+            raise HTTPException(status_code=401, detail="Kimi API Key 无效")
+        except RateLimitError:
+            raise HTTPException(status_code=429, detail="Kimi 请求过于频繁")
+        except APITimeoutError:
+            result["reason"] += "；Kimi 超时，已使用本地规则结果"
+        except (APIConnectionError, APIStatusError) as e:
+            status = getattr(e, "status_code", 502)
+            result["reason"] += f"；Kimi 返回错误 {status}，已使用本地规则结果"
+
+    result["doc_type"] = _normalize_doc_type(result.get("doc_type", "资料"))
+    result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5) or 0.5)))
+    target["doc_type"] = result["doc_type"]
+    target["summary"] = result.get("summary", target.get("summary", ""))
+    target["classification"] = {
+        "doc_type": result["doc_type"],
+        "confidence": result["confidence"],
+        "reason": result.get("reason", ""),
+        "source": result.get("source", "local"),
+        "model": result.get("model", ""),
+        "classified_at": datetime.now().isoformat(),
+    }
+    materials[idx] = target
+    await write_json(materials_path, materials)
+    return {"material": target, **target["classification"], "summary": target.get("summary", "")}
+
+
+@router.patch("/{material_id}/type")
+async def update_material_type(
+    material_id: str,
+    req: MaterialTypeUpdateRequest,
+    user: dict = Depends(get_current_user_profile),
+):
+    doc_type = _normalize_doc_type(req.doc_type)
+    if doc_type not in DOC_TYPES:
+        raise HTTPException(status_code=400, detail="资料类型无效")
+    materials_path, materials = await _load_current_user_materials(user["username"])
+    idx, target = _find_material(materials, material_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    target["doc_type"] = doc_type
+    target["manual_type_reason"] = req.reason.strip()
+    target["manual_type_updated_at"] = datetime.now().isoformat()
+    materials[idx] = target
+    await write_json(materials_path, materials)
+    return {"message": "资料类型已更新", "material": target}
+
+
 @router.get("/{material_id}/text")
 async def get_material_text(
     material_id: str,
@@ -577,7 +861,7 @@ async def get_material_html(
     return {"html": "", "type": "none"}
 
 
-@router.get("/{material_id}/file")
+@router.api_route("/{material_id}/file", methods=["GET", "HEAD"])
 async def download_material_file(
     material_id: str,
     download: bool = False,

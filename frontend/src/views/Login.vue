@@ -40,7 +40,7 @@
             <el-button text @click="router.push('/register')">提交注册申请</el-button>
           </div>
           <el-alert
-            title="学生注册、人脸视频校验与管理员审核流程已在后端留出骨架，当前前端先开放教师/管理员工作流。"
+            title="学生可提交注册申请和现场人脸视频，审核通过后由管理员安排班级；学生端学习入口暂未开放。"
             type="info"
             :closable="false"
             show-icon
@@ -52,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { ElMessage } from 'element-plus'
@@ -62,6 +62,13 @@ const username = ref('')
 const password = ref('')
 const router = useRouter()
 const auth = useAuthStore()
+
+onMounted(() => {
+  const url = new URL(window.location.href)
+  if (!url.searchParams.has('session_expired')) return
+  url.searchParams.delete('session_expired')
+  window.history.replaceState({}, '', url.toString())
+})
 
 async function handleLogin() {
   const name = username.value.trim()
