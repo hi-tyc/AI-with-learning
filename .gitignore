@@ -1,0 +1,53 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.opencode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+backend/.venv/
+backend/venv/
+
+# Frontend dependencies / build cache
+frontend/node_modules/
+frontend/.vite/
+
+# Runtime logs / pid / temp
+*.log
+studybuddy_pids.json
+frontend/dev.log
+frontend/preview.log
+backend/server.log
+backend/uvicorn.log
+temp/
+
+# Local data and secrets
+users/
+uploads/
+memory/
+shared/
+admin.json
+backend/.env
+backend/data/
+AI伴学数据/
+AI伴学数据 7.9/
+
+# Local archives / backups / duplicate extracted copies
+*.zip
+AI伴学 7.9/
+
+# Build outputs
+build/
+dist/
+
+# Optional local packaging outputs
+*.spec
