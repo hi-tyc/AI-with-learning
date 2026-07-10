@@ -9,7 +9,9 @@
         <span class="mobile-brand">StudyBuddy</span>
       </div>
       <div class="mobile-header-right">
-        <el-tag v-if="auth.subject" :type="subjectTagType" size="small" effect="dark">{{ auth.subject }}</el-tag>
+        <el-tag v-if="auth.isLoggedIn" :type="auth.isAdmin ? 'danger' : 'success'" size="small" effect="dark">
+          {{ auth.isAdmin ? '管理员' : '教师' }}
+        </el-tag>
       </div>
     </div>
 
@@ -37,13 +39,7 @@ import SidebarRight from './SidebarRight.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
-const isLoginPage = computed(() => route.path === '/login')
-
-const subjectTagType = computed(() => {
-  if (auth.subject === '数学') return 'primary'
-  if (auth.subject === '英语') return 'success'
-  return 'warning'
-})
+const isLoginPage = computed(() => ['/login', '/register'].includes(route.path))
 
 // 移动端检测
 const isMobile = ref(false)

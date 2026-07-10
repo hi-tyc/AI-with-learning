@@ -11,15 +11,22 @@ let loadingInstance = null
 let requestCount = 0
 let loadingTimer = null
 
-// 不显示全局 loading 的路径前缀（config.url 不含 query params）
-const SKIP_LOADING_PATHS = ['/materials/tree', '/materials/tags', '/sessions', '/usage']
+const SKIP_LOADING_PATHS = ['/materials/tree', '/materials/tags', '/school/summary']
 
 function shouldSkipLoading(config) {
   const url = config.url || ''
-  if (SKIP_LOADING_PATHS.some(p => url === p || url.startsWith(p))) return true
-  // 关键词搜索题目也跳过 loading
-  if (url === '/problems' && config.params && config.params.keyword) return true
-  return false
+  return SKIP_LOADING_PATHS.some(p => url === p || url.startsWith(p))
+}
+
+function clearLoading() {
+  if (loadingTimer) {
+    clearTimeout(loadingTimer)
+    loadingTimer = null
+  }
+  if (loadingInstance) {
+    loadingInstance.close()
+    loadingInstance = null
+  }
 }
 
 axios.interceptors.request.use(
@@ -31,7 +38,7 @@ axios.interceptors.request.use(
         if (requestCount > 0 && !loadingInstance) {
           loadingInstance = ElLoading.service({ lock: true, text: '加载中...', background: 'rgba(255,255,255,0.4)' })
         }
-      }, 300) // 延迟300ms，短请求不显示
+      }, 300)
     }
     return config
   },
@@ -42,11 +49,6 @@ axios.interceptors.request.use(
   }
 )
 
-function clearLoading() {
-  if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null }
-  if (loadingInstance) { loadingInstance.close(); loadingInstance = null }
-}
-
 axios.interceptors.response.use(
   (response) => {
     if (!shouldSkipLoading(response.config)) {
@@ -56,12 +58,11 @@ axios.interceptors.response.use(
     return response
   },
   (error) => {
-    if (!shouldSkipLoading(error.config)) {
+    if (!shouldSkipLoading(error.config || {})) {
       requestCount = Math.max(0, requestCount - 1)
       if (requestCount === 0) clearLoading()
     }
     if (error.response?.status === 401) {
-      // 只在非登录页面显示过期提示
       const currentPath = window.location.hash.replace(/^#/, '') || '/'
       if (!currentPath.includes('/login')) {
         ElMessage.error('登录已过期，请重新登录')
@@ -81,22 +82,30 @@ axios.interceptors.response.use(
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const isLoggedIn = ref(false)
-  const subject = ref('数学')
-  const isAdmin = computed(() => user.value?.is_admin === true || user.value?.username === 'root')
+  const role = ref('')
 
-  function syncAppSubject() {
+  const isAdmin = computed(() => role.value === 'admin' || user.value?.role === 'admin')
+  const isTeacher = computed(() => role.value === 'teacher' || user.value?.role === 'teacher')
+  const displayName = computed(() => user.value?.real_name || user.value?.username || '')
+
+  function syncAppRole() {
     try {
       const app = useAppStore()
-      app.currentSubject = subject.value
+      app.currentRole = role.value || ''
     } catch {}
   }
 
-  async function login(username, selectedSubject = '数学', password = '') {
-    const res = await axios.post('/auth/login', { username, password, subject: selectedSubject })
-    user.value = { username: res.data.username, subject: res.data.subject, is_admin: res.data.is_admin || false }
-    subject.value = res.data.subject
+  async function login(username, password = '') {
+    const res = await axios.post('/auth/login', { username, password })
+    user.value = {
+      username: res.data.username,
+      real_name: res.data.real_name,
+      role: res.data.role,
+      is_admin: res.data.is_admin || false,
+    }
+    role.value = res.data.role
     isLoggedIn.value = true
-    syncAppSubject()
+    syncAppRole()
     return res.data
   }
 
@@ -104,38 +113,25 @@ export const useAuthStore = defineStore('auth', () => {
     await axios.post('/auth/logout')
     user.value = null
     isLoggedIn.value = false
-    subject.value = '数学'
-    syncAppSubject()
+    role.value = ''
+    syncAppRole()
   }
 
   async function fetchMe() {
     try {
       const res = await axios.get('/auth/me')
       user.value = res.data
-      subject.value = res.data.subject || '数学'
+      role.value = res.data.role || ''
       isLoggedIn.value = true
-      syncAppSubject()
+      syncAppRole()
       return res.data
     } catch {
       user.value = null
       isLoggedIn.value = false
-      subject.value = '数学'
-      syncAppSubject()
+      role.value = ''
+      syncAppRole()
     }
   }
 
-  async function switchSubject(newSubject) {
-    try {
-      const res = await axios.put('/auth/subject', { subject: newSubject })
-      subject.value = res.data.subject
-      user.value = { ...user.value, subject: res.data.subject }
-      syncAppSubject()
-      ElMessage.success(`已切换到 ${newSubject} 模式`)
-      return res.data
-    } catch (e) {
-      ElMessage.error('切换学科失败')
-    }
-  }
-
-  return { user, isLoggedIn, subject, isAdmin, login, logout, fetchMe, switchSubject }
+  return { user, isLoggedIn, role, isAdmin, isTeacher, displayName, login, logout, fetchMe }
 })

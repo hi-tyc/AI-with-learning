@@ -11,7 +11,7 @@ import { useRoute } from 'vue-router'
 import AppLayout from './components/AppLayout.vue'
 
 const route = useRoute()
-const showLayout = computed(() => route.path !== '/login')
+const showLayout = computed(() => !['/login', '/register'].includes(route.path))
 </script>
 
 <style>

@@ -2,7 +2,6 @@ from openai import AsyncOpenAI
 from openai.types.completion_usage import CompletionUsage
 import httpx
 
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
 
 _http_client: httpx.AsyncClient | None = None
@@ -20,7 +19,7 @@ def _get_http_client() -> httpx.AsyncClient:
 
 def create_client(
     api_key: str,
-    base_url: str = DEEPSEEK_BASE_URL,
+    base_url: str = KIMI_BASE_URL,
     timeout: int = 120,
 ) -> AsyncOpenAI:
     return AsyncOpenAI(
@@ -44,14 +43,6 @@ def extract_usage_sdk(usage: CompletionUsage | None) -> tuple[int, int, int]:
     prompt = usage.prompt_tokens or 0
     completion = usage.completion_tokens or 0
 
-    # DeepSeek: typed attributes on CompletionUsage
-    if hasattr(usage, "prompt_cache_hit_tokens"):
-        hit = getattr(usage, "prompt_cache_hit_tokens") or 0
-        miss = getattr(usage, "prompt_cache_miss_tokens", None)
-        if miss is None:
-            miss = max(0, prompt - hit)
-        return int(hit), int(max(0, miss or 0)), int(completion)
-
     # Kimi (Moonshot): typed attributes
     hit = 0
     if hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
@@ -63,12 +54,6 @@ def extract_usage_sdk(usage: CompletionUsage | None) -> tuple[int, int, int]:
     # Fallback to model_extra for SDK versions that keep them there
     if not hit:
         extra = getattr(usage, "model_extra", None) or {}
-        if "prompt_cache_hit_tokens" in extra:
-            hit = extra.get("prompt_cache_hit_tokens") or 0
-            miss = extra.get("prompt_cache_miss_tokens")
-            if miss is None:
-                miss = max(0, prompt - hit)
-            return int(hit), int(max(0, miss or 0)), int(completion)
         hit = extra.get("cached_tokens") or 0
         if not hit:
             details = extra.get("prompt_tokens_details", {}) or {}

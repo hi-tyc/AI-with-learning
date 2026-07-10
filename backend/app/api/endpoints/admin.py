@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime, date
 from typing import Optional
 
-from app.api.endpoints.auth import get_current_user
+from app.api.endpoints.auth import get_current_user_profile
 from app.core.admin_auth import change_admin_password, verify_admin_password
 from app.core.paths import DATA_DIR, UPLOAD_DIR, USERS_DIR, SHARED_DIR, MEMORY_DIR
 from app.utils.file_lock import read_json, write_json
@@ -13,10 +13,10 @@ from app.utils.file_lock import read_json, write_json
 router = APIRouter()
 
 
-async def get_current_admin(request: Request, username: str = Depends(get_current_user)) -> str:
-    if username != "root":
+async def get_current_admin(request: Request, user: dict = Depends(get_current_user_profile)) -> str:
+    if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
-    return username
+    return user.get("username", "root")
 
 
 class PasswordChangeRequest(BaseModel):
@@ -95,8 +95,10 @@ async def list_users(request: Request, username: str = Depends(get_current_admin
             mtime = os.path.getmtime(path)
             users[uname] = {
                 "username": uname,
+                "real_name": user_data.get("real_name") or uname,
+                "role": user_data.get("role", "teacher"),
+                "status": user_data.get("status", "active"),
                 "created_at": user_data.get("created_at", ""),
-                "grade": user_data.get("grade", ""),
                 "school": user_data.get("school", ""),
                 "last_modified": datetime.fromtimestamp(mtime).isoformat(),
             }
@@ -246,7 +248,6 @@ async def purge_temp_data(request: Request, username: str = Depends(get_current_
 @router.get("/usage-summary")
 async def admin_usage_summary(request: Request, username: str = Depends(get_current_admin)):
     items = []
-    seen_users = set()
     for f in os.listdir(USERS_DIR):
         if not f.endswith("_usage.json") or f.endswith(".tmp"):
             continue
@@ -254,7 +255,6 @@ async def admin_usage_summary(request: Request, username: str = Depends(get_curr
         parts = base.rsplit("_", 1)
         uname = parts[0]
         subj = parts[1] if len(parts) > 1 else ""
-        seen_users.add(uname)
         fpath = os.path.join(USERS_DIR, f)
         try:
             records = await read_json(fpath)
@@ -266,17 +266,6 @@ async def admin_usage_summary(request: Request, username: str = Depends(get_curr
             cost = sum(r.get("cost_yuan", 0) or 0 for r in today_records)
             today_count = len(today_records)
 
-            # Also check solve_sessions for this user+subject
-            if subj:
-                solve_path = os.path.join(USERS_DIR, f"{uname}_{subj}_solve_sessions.json")
-                solve_records = await read_json(solve_path)
-                if solve_records and isinstance(solve_records, list):
-                    today_solve = [r for r in solve_records if _is_today(r.get("created_at", ""))]
-                    tokens_in += sum((r.get("input_cache_hit", 0) or 0) + (r.get("input_cache_miss", 0) or 0) for r in today_solve)
-                    tokens_out += sum(r.get("output", 0) or 0 for r in today_solve)
-                    cost += sum(r.get("cost_yuan", 0) or 0 for r in today_solve)
-                    today_count += len(today_solve)
-
             items.append({
                 "username": uname,
                 "subject": subj,
@@ -284,35 +273,6 @@ async def admin_usage_summary(request: Request, username: str = Depends(get_curr
                 "today_tokens_out": int(tokens_out),
                 "today_cost": round(cost, 6),
                 "today_count": today_count,
-            })
-        except Exception:
-            pass
-
-    # Add chat usage as a separate "对话" row per user.
-    for uname in seen_users:
-        try:
-            chat_path = os.path.join(USERS_DIR, f"{uname}_对话_chat_sessions.json")
-            chat_records = await read_json(chat_path)
-            if not chat_records or not isinstance(chat_records, list):
-                continue
-            today_chat = [r for r in chat_records if _is_today(r.get("created_at", ""))]
-            if not today_chat:
-                continue
-            tokens_in = 0
-            tokens_out = 0
-            cost = 0.0
-            for r in today_chat:
-                last = r.get("last_usage") or {}
-                tokens_in += (last.get("hit") or 0) + (last.get("miss") or 0)
-                tokens_out += last.get("out") or 0
-                cost += last.get("cost") or 0
-            items.append({
-                "username": uname,
-                "subject": "对话",
-                "today_tokens_in": int(tokens_in),
-                "today_tokens_out": int(tokens_out),
-                "today_cost": round(cost, 6),
-                "today_count": len(today_chat),
             })
         except Exception:
             pass

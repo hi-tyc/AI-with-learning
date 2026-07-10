@@ -18,7 +18,7 @@ def get_user_config_path(username: str) -> str:
 
 async def get_user_subject(username: str) -> str:
     config = await read_json(get_user_config_path(username)) or {}
-    return config.get("subject", "数学")
+    return config.get("subject", "英语")
 
 
 async def set_user_subject(username: str, subject: str) -> None:

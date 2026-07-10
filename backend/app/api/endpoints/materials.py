@@ -29,6 +29,55 @@ MAGIC_PDF = b"%PDF"
 MAGIC_ZIP = b"PK\x03\x04"
 
 
+def _material_tree_node(name: str = "") -> dict:
+    return {
+        "name": name,
+        "path": name,
+        "count": 0,
+        "children": {},
+        "items": [],
+    }
+
+
+def _build_tag_tree(materials: list[dict]) -> list[dict]:
+    root = _material_tree_node("")
+    for material in materials:
+        tag = (material.get("tag") or material.get("time") or "未分类").strip("/")
+        parts = [part.strip() for part in tag.split("/") if part.strip()] or ["未分类"]
+        cursor = root
+        prefix = []
+        for part in parts:
+            prefix.append(part)
+            if part not in cursor["children"]:
+                cursor["children"][part] = {
+                    "name": part,
+                    "path": "/".join(prefix),
+                    "count": 0,
+                    "children": {},
+                    "items": [],
+                }
+            cursor = cursor["children"][part]
+            cursor["count"] += 1
+        cursor["items"].append({
+            "id": material["id"],
+            "filename": material["filename"],
+            "file_type": material.get("file_type", "pdf"),
+            "created_at": material.get("created_at", ""),
+            "file_size": material.get("file_size", 0),
+        })
+
+    def serialize(node: dict) -> dict:
+        return {
+            "name": node["name"],
+            "path": node["path"],
+            "count": node["count"],
+            "items": node["items"],
+            "children": [serialize(child) for child in sorted(node["children"].values(), key=lambda item: item["name"])],
+        }
+
+    return [serialize(child) for child in sorted(root["children"].values(), key=lambda item: item["name"])]
+
+
 def _is_image(data: bytes) -> bool:
     return data.startswith(MAGIC_JPEG) or data.startswith(MAGIC_PNG)
 
@@ -366,6 +415,15 @@ async def get_materials_tree(
             "created_at": m.get("created_at", ""),
         })
     return tree
+
+
+@router.get("/tag-tree")
+async def get_materials_tag_tree(
+    username: str = Depends(get_current_user),
+):
+    config_subject = await get_user_subject(username)
+    materials = await read_json(get_materials_path(username, config_subject)) or []
+    return {"items": _build_tag_tree(materials)}
 
 
 @router.get("/tags")

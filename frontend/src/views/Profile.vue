@@ -6,19 +6,17 @@
         <el-form-item label="用户名">
           <el-input v-model="form.username" disabled />
         </el-form-item>
-        <el-form-item label="年级">
-          <el-select v-model="form.grade">
-            <el-option label="六年级" value="六年级" />
-            <el-option label="七年级" value="七年级" />
-            <el-option label="八年级" value="八年级" />
-            <el-option label="九年级" value="九年级" />
-          </el-select>
+        <el-form-item label="真实姓名">
+          <el-input v-model="form.real_name" />
         </el-form-item>
         <el-form-item label="学校">
-          <el-input v-model="form.school" placeholder="如：南京外国语学校" />
+          <el-input v-model="form.school" />
         </el-form-item>
-        <el-form-item label="解题偏好">
-          <el-input v-model="form.preferences" type="textarea" :rows="3" placeholder="如：喜欢分步骤讲解、需要详细推导过程、偏好哪种解题方法等" />
+        <el-form-item label="资料偏好">
+          <el-input v-model="form.preferences" type="textarea" :rows="3" placeholder="例如：按班级分发、打印前先按标签筛选" />
+        </el-form-item>
+        <el-form-item label="有效期">
+          <el-input v-model="form.expires_at" placeholder="2026-12-31T23:59:59，可留空" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="save">保存</el-button>
@@ -33,13 +31,19 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const form = ref({ username: '', grade: '八年级', school: '' })
+const form = ref({ username: '', real_name: '', school: '', preferences: '', expires_at: '' })
 
 async function load() {
   try {
     const res = await axios.get('/auth/me')
-    form.value = res.data
-  } catch (e) {
+    form.value = {
+      username: res.data.username || '',
+      real_name: res.data.real_name || '',
+      school: res.data.school || '',
+      preferences: res.data.preferences || '',
+      expires_at: res.data.expires_at || '',
+    }
+  } catch {
     ElMessage.error('加载失败')
   }
 }
@@ -49,7 +53,7 @@ async function save() {
     await axios.put('/auth/me', form.value)
     ElMessage.success('保存成功')
   } catch (e) {
-    ElMessage.error('保存失败')
+    ElMessage.error(e.response?.data?.detail || '保存失败')
   }
 }
 
@@ -58,19 +62,12 @@ onMounted(load)
 
 <style scoped>
 .profile-page {
-  max-width: 600px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 20px;
 }
 .profile-card {
   margin-top: 20px;
   border-radius: 12px;
-}
-
-/* ========== 移动端响应式 ========== */
-@media (max-width: 768px) {
-  .profile-page {
-    padding: 16px 12px;
-  }
 }
 </style>

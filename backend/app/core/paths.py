@@ -63,8 +63,9 @@ UPLOAD_DIR = _resolve_upload_dir()
 USERS_DIR = os.path.join(DATA_DIR, "users")
 SHARED_DIR = os.path.join(DATA_DIR, "shared")
 MEMORY_DIR = os.path.join(DATA_DIR, "memory")
+REGISTRATION_DIR = os.path.join(DATA_DIR, "registrations")
 
 
 def ensure_dirs():
-    for d in [UPLOAD_DIR, DATA_DIR, USERS_DIR, SHARED_DIR, MEMORY_DIR]:
+    for d in [UPLOAD_DIR, DATA_DIR, USERS_DIR, SHARED_DIR, MEMORY_DIR, REGISTRATION_DIR]:
         os.makedirs(d, exist_ok=True)
